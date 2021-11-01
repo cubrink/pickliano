@@ -7,7 +7,9 @@
 #define _BV(bit) (1 << (bit)) 
 #endif
 
-// Location of buttons on the arduino
+// Location of buttons and sliders on the arduino
+const int slider1 = A0;
+const int slider2 = A1;
 const int button0 = 8;
 const int button1 = 9;
 const int button2 = 10;
@@ -22,13 +24,17 @@ uint32_t changed;
 uint32_t state;
 uint32_t prev_state;
 
+uint8_t midi_cc;
+
 // Track offsets of MIDI values
 int32_t octave;
 int32_t transpose;
 
 
 uint32_t get_state();
-uint32_t reverse_int32();
+uint8_t read_slider1();
+uint8_t read_slider2();
+void check_buttons();
 
 MIDI_CREATE_DEFAULT_INSTANCE();
 
@@ -52,23 +58,29 @@ void setup() {
 
     octave = 0;
     transpose = 0;
+
+    midi_cc = 0;
 }
 
 void loop() {
     uint32_t mask;
     uint32_t value;
+    uint8_t velocity;
+
+    check_buttons();
 
     prev_state = state;
     state = get_state();
     changed = state ^ prev_state;
 
-    for (uint8_t i=0; i<24; i++) {
-        mask = (1 << i);
+    velocity = read_slider1();
+    for (uint32_t i=0; i<24; i++) {
+        mask = ((uint32_t)1 << i);
         if (changed & mask) {
             value = (state & mask) >> i;
             MIDI.sendNoteOn(
                 36 + i + (12*octave + transpose), // MIDI note
-                127 * value,                      // Velocity
+                velocity * value,                 // Velocity
                 1                                 // Channel
             );
         }
@@ -81,20 +93,38 @@ uint32_t get_state() {
     // MPR121 represents the 12 channels as a 16 bit int
     // Shift left 12 so that and bitwise OR to combine the result 
     // into a 24 bit result
-    uint32_t tmp = (keys[1].touched() << 12) | keys[0].touched() 
-    // The board is actually inverted with respect to a piano
-    // Flip this around so that the rightmost bit corresponds to the rightmost key
-    tmp = reverse_int32(tmp);
-    // Shift 32-24=8 bits left to remove empty bits from reversing
-    tmp = tmp >> 8
-    return tmp
+    uint32_t left = keys[1].touched();
+    left = left << 12;
+    uint32_t right = keys[0].touched();
+    uint32_t tmp = (left) | right;
+    return tmp;
 }
 
-uint32_t reverse_int32(uint32_t n) {
-  n = (n >> 16) | (n << 16);
-  n = ((n & 0xff00ff00) >> 8) | ((n & 0x00ff00ff) << 8);
-  n = ((n & 0xf0f0f0f0) >> 4) | ((n & 0x0f0f0f0f) << 4);
-  n = ((n & 0xcccccccc) >> 2) | ((n & 0x33333333) << 2);
-  n = ((n & 0xaaaaaaaa) >> 1) | ((n & 0x55555555) << 1);
-  return n;
+uint8_t read_slider1() {
+    // MIDI values go from 0-127
+    return (uint8_t)((analogRead(slider1) / 1023.0) * 127.0);
+}
+
+uint8_t read_slider2() {
+    // MIDI values go from 0-127
+    return (uint8_t)((analogRead(slider2) / 1023.0) * 127.0);
+}
+
+void check_buttons() {
+    if (digitalRead(button0)) {
+        octave++;
+        while (digitalRead(button0)) {}
+    }
+    if (digitalRead(button1)) {
+        octave--;
+        while (digitalRead(button1)) {}
+    }
+    if (digitalRead(button2)) {
+        transpose++;
+        while (digitalRead(button2)) {}
+    }
+    if (digitalRead(button3)) {
+        transpose--;
+        while (digitalRead(button3)) {}
+    }
 }
